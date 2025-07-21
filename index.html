@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Frames Explained</title>
+    <link rel="stylesheet" href="styles.min.css">
+</head>
+
+<script type="module" src="bundle.min.js"></script>
+
+<body>
+
+    <h1>WebSocket Frames Explained</h1>
+
+    I recently wrote a WebSocket parser, and was surprised at how simple the (base) protocol is. The RFC felt almost
+    readable, and the message format felt easy to reason about once I saw it laid out. It does just what it needs to do,
+    and no more.
+
+    <br><br>
+
+    WebSocket communication is built on a simple structure: clients and servers exchange <em>messages</em>, and each
+    message is made up of one or more <em>frames</em>. Let's start by assuming messages are just single frames, and
+    we'll build from there.
+
+    <h2 id="the-basics" style="margin: 1.5em 0 1em 0;">The basics<a class="link" href="#the-basics">#</a></h2>
+
+    Here's a simple (but valid!) WebSocket message that's just 7 bytes long:
+    <br><br>
+
+    <div style="display: flex; font-family: monospace; margin: 2em 0; gap: 10px; justify-content: center;">
+        <div style="display: flex; flex-direction: column; align-items: center;">
+            <div style="padding: 6px 10px; border-radius: 6px; background: #0891b2; color: white;">
+                81
+            </div>
+            <div style="margin-top: 8px; font-size: 13px; color: #0891b2;">header</div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; align-items: center;">
+            <div style="padding: 6px 10px; border-radius: 6px; background: #ea580c; color: white;">
+                05
+            </div>
+            <div style="margin-top: 8px; font-size: 13px; color: #ea580c;">len</div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; align-items: center;">
+            <div style="padding: 6px 10px; border-radius: 6px; background: #1e3a8a; color: white;">
+                48 65 6c 6c 6f
+            </div>
+            <div style="margin-top: 8px; font-size: 13px; color: #1e3a8a;">payload</div>
+        </div>
+
+    </div>
+
+
+    Apart from the header byte (we'll get to it later), this is literally just the message length followed by the
+    UTF-8 encoded string "Hello". Simple, right?
+
+    <br><br>
+
+    Of course, the full story is a little more than that.
+
+    <h2 id="masking" style="margin: 1.5em 0 1em 0;">Masking<a class="link" href="#masking">#</a></h2>
+
+    The client <a href="https://www.rfc-editor.org/rfc/rfc6455#section-5.1" target="_blank">MUST</a> mask all the
+    messages it sends to the server. If you're like me and you're wondering how "client" and "server" apply to
+    WebSockets- the client initiates the connection with an HTTP request, and the server responds with a <span
+        style="background-color: #e0f2fe; color: #0369a1; font-weight: 500; padding: 2px 4px; border-radius: 12px; font-family: monospace; font-size: 13px;">
+        101 Switching Protocols</span>
+    before upgrading to WebSocket.
+
+    <br><br>
+
+    We're going to add a masking key that's 4 bytes long, say <span style="font-family: monospace; padding: 0.5em 0;">a1
+        b2 c3 d4
+    </span>. Here's what our "Hello" message looks
+    like now:
+
+    <div
+        style="display: flex; font-family: monospace; margin: 2em 0; gap: 10px; justify-content: center; flex-wrap: wrap;">
+        <div style="display: flex; flex-direction: column; align-items: center; margin-bottom: 1em;">
+            <div style="padding: 6px 10px; border-radius: 6px; background: #0891b2; color: white;">
+                81
+            </div>
+            <div style="margin-top: 8px; font-size: 13px; color: #0891b2;">header</div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; align-items: center; margin-bottom: 1em;">
+            <div style="padding: 6px 10px; border-radius: 6px; background: #ea580c; color: white;">
+                85
+            </div>
+            <div style="margin-top: 8px; font-size: 13px; color: #ea580c;">mask/len</div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; align-items: center; margin-bottom: 1em;">
+            <div style="padding: 6px 10px; border-radius: 6px; background: #7c3aed; color: white;">
+                a1 b2 c3 d4
+            </div>
+            <div style="margin-top: 8px; font-size: 13px; color: #7c3aed;">masking key</div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; align-items: center; margin-bottom: 1em;">
+            <div style="padding: 6px 10px; border-radius: 6px; background: #1e3a8a; color: white;">
+                e9 d7 af a8 ab
+            </div>
+            <div style="margin-top: 8px; font-size: 13px; color: #1e3a8a;">masked payload</div>
+        </div>
+    </div>
+
+
+    <p>
+        Notice that the most significant bit (MSB) of the second byte is now set to <code>1</code>, unlike in
+        the previous example. As you might expect, this means the payload is masked. It's actually the remaining 7 bits
+        that represent the payload length.
+    </p>
+    <p>
+        To keep things clear, we'll refer to this combined byte as <strong>“mask/len”</strong>.
+    </p>
+
+    The masked payload is obtained by XORing the original payload with the mask, one byte at a time.
+
+    <div style="display: flex; justify-content: center; font-family: monospace; margin: 2em;">
+        <div style="display: flex; flex-direction: column;">
+            <div style="display: flex; align-items: center; margin-bottom: 6px;">
+                <div style="width: 150px;">"Hello"</div>
+                <div
+                    style="padding: 6px 10px; border-radius: 6px; background: #d97706; color: white; margin-right: 6px;">
+                    48
+                </div>
+                <div
+                    style="padding: 6px 10px; border-radius: 6px; background: #d97706; color: white; margin-right: 6px;">
+                    65
+                </div>
+                <div
+                    style="padding: 6px 10px; border-radius: 6px; background: #d97706; color: white; margin-right: 6px;">
+                    6c
+                </div>
+                <div
+                    style="padding: 6px 10px; border-radius: 6px; background: #d97706; color: white; margin-right: 6px;">
+                    6c
+                </div>
+                <div
+                    style="padding: 6px 10px; border-radius: 6px; background: #d97706; color: white; margin-right: 6px;">
+                    6f
+                </div>
+            </div>
+
+            <div style="display: flex; align-items: center; margin-bottom: 6px;">
+                <div style="width: 150px;">Masking key</div>
+                <div
+                    style="padding: 6px 10px; border-radius: 6px; background: #7c3aed; color: white; margin-right: 6px;">
+                    a1
+                </div>
+                <div
+                    style="padding: 6px 10px; border-radius: 6px; background: #7c3aed; color: white; margin-right: 6px;">
+                    b2
+                </div>
+                <div
+                    style="padding: 6px 10px; border-radius: 6px; background: #7c3aed; color: white; margin-right: 6px;">
+                    c3
+                </div>
+                <div
+                    style="padding: 6px 10px; border-radius: 6px; background: #7c3aed; color: white; margin-right: 6px;">
+                    d4
+                </div>
+                <div
+                    style="padding: 6px 10px; border-radius: 6px; background: #7c3aed; color: white; margin-right: 6px;">
+                    a1
+                </div>
+            </div>
+
+
+            <div style="display: flex; align-items: center; margin-bottom: 6px;">
+                <div style="width: 150px;">Masked</div>
+                <div
+                    style="padding: 6px 10px; border-radius: 6px; background: #1e3a8a; color: white; margin-right: 6px;">
+                    e9
+                </div>
+                <div
+                    style="padding: 6px 10px; border-radius: 6px; background: #1e3a8a; color: white; margin-right: 6px;">
+                    d7
+                </div>
+                <div
+                    style="padding: 6px 10px; border-radius: 6px; background: #1e3a8a; color: white; margin-right: 6px;">
+                    af
+                </div>
+                <div
+                    style="padding: 6px 10px; border-radius: 6px; background: #1e3a8a; color: white; margin-right: 6px;">
+                    a8
+                </div>
+                <div
+                    style="padding: 6px 10px; border-radius: 6px; background: #1e3a8a; color: white; margin-right: 6px;">
+                    ce
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div
+        style="margin-top: 2em; font-family: system-ui, sans-serif; line-height: 1.6; background-color: #0f172a; color: #e2e8f0; border: 1px solid #334155; border-radius: 8px; padding: 1em;">
+        <details style="font-size: 14px;">
+            <summary style="font-size: 1.1em; font-weight: 600; cursor: pointer; outline: none;">
+                But why MUST client → server messages be masked?
+            </summary>
+            <div style="margin-top: 1em;">
+                It's a bit kludgy, but it's a security measure to prevent cross-protocol attacks.
+                <br><br>
+
+                Imagine attacker.com opens a WebSocket connection on the browser to its own server. It then sends a
+                WebSocket message that <i>looks</i> like a HTTP GET request:
+                <br><br>
+
+                <pre style="background: #1e293b; color: #cbd5e1; padding: 0.5em 1em; border-radius: 6px; font-family: monospace; overflow-x: auto; line-height: 1.4; margin: 0;white-space: nowrap;word-break: break-word;
+              ">
+                    <code style="display: block;">
+                    <span style="color: #6cbb76;">// on the user's browser</span><br>
+                    <span style="color: #60a5fa;">const</span> socket = <span style="color: #f97316;">new</span> WebSocket(<span style="color: #f87171;">"ws://attacker.com"</span>);<br>
+                    socket.onopen = <span style="color: #10b981;">()</span> => socket.send(<br>
+                    &nbsp;&nbsp;<span style="color: #f87171;">"GET /jquery.min.js HTTP/1.1\r\n"</span> +<br>
+                    &nbsp;&nbsp;<span style="color: #f87171;">"Host: cdn.jquery.com\r\n"</span> +<br>
+                    &nbsp;&nbsp;<span style="color: #f87171;">"User-Agent: Mozilla/5.0\r\n"</span> +<br>
+                    &nbsp;&nbsp;<span style="color: #f87171;">"Accept: */*\r\n"</span> +<br>
+                    &nbsp;&nbsp;<span style="color: #f87171;">"Connection: keep-alive\r\n\r\n"</span><br>
+                    );
+                    </code>
+                </pre>
+
+                <br><br>
+
+                If there's no masking, these bytes are sent verbatim over the wire by the browser. If there's a
+                caching proxy that doesn't parse websocket traffic correctly, it treats this as a legitimate HTTP
+                request.
+
+                <br><br>
+
+                Now attacker.com sends back a websocket message that <i>looks</i> like a HTTP response:
+
+                <br><br>
+
+                <code style="display: block; background: #1e293b; padding: 0.5em; border-radius: 4px;">
+                    HTTP/1.1 200 OK<br>
+                    Content-Type: application/javascript<br>
+                    Content-Length: 1337<br>
+                    Cache-Control: public, max-age=86400<br>
+                    <br>
+                    alert('pwned');
+                </code>
+
+                <br>
+
+                The proxy caches this since it looks like a valid HTTP response. The next time a user requests
+                cdn.jquery.com/jquery.min.js, they are served the malicious version from the cache.
+                <br><br>
+
+                To prevent this, each client → server frame is masked with a different randomly generated key. This
+                prevents HTTP proxies from accidentally intepreting these bytes as anything
+                else.
+
+                <br><br>
+                Note that <strong>server → client frames aren't masked</strong> - this risk only exists in
+                browser-initiated traffic. In fact server → client frames <a
+                    href="https://www.rfc-editor.org/rfc/rfc6455#section-5.1" target="_blank">MUST NOT</a> be masked.
+
+                <br><br>
+
+                All that said, masking is less critical than it used to be:
+
+                <ul>
+                    <li>
+                        HTTPS is a lot more widespread now, and the encryption prevents proxies from looking inside your
+                        traffic.
+                    </li>
+                    <li>
+                        Modern proxies are WebSocket aware, and don't try to parse WebSocket messages as anything else.
+                    </li>
+                </ul>
+            </div>
+        </details>
+    </div>
+
+    <h2 id="fragmentation-flags-and-frames" style="margin: 1.5em 0 1em 0;">
+        Fragmentation, Flags, and Frames<a class="link" href="#fragmentation-flags-and-frames">#</a>
+    </h2>
+
+    As mentioned earlier, WebSocket messages can span multiple frames. The individual payloads from each frame are
+    concatenated to get the complete message. For example, if a WebSocket client receives these two frames from a server
+    in this
+    order:
+
+    <div style="display: flex; font-family: monospace; margin: 2em 0; gap: 10px; justify-content: center;">
+        <div style="display: flex; flex-direction: column; align-items: center;">
+            <div style="padding: 6px 10px; border-radius: 6px; background: #0891b2; color: white;">
+                01
+            </div>
+            <div style="margin-top: 8px; font-size: 13px; color: #0891b2;">header</div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; align-items: center;">
+            <div style="padding: 6px 10px; border-radius: 6px; background: #ea580c; color: white;">
+                06
+            </div>
+            <div style="margin-top: 8px; font-size: 13px; color: #ea580c;">mask/len</div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; align-items: center;">
+            <div style="padding: 6px 10px; border-radius: 6px; background: #1e3a8a; color: white;">
+                48 65 6c 6c 6f 2c
+            </div>
+            <div style="margin-top: 8px; font-size: 13px; color: #1e3a8a;">payload ("Hello ")</div>
+        </div>
+
+    </div>
+
+    <div style="display: flex; font-family: monospace; margin: 2em 0; gap: 10px; justify-content: center;">
+        <div style="display: flex; flex-direction: column; align-items: center;">
+            <div style="padding: 6px 10px; border-radius: 6px; background: #0891b2; color: white;">
+                80
+            </div>
+            <div style="margin-top: 8px; font-size: 13px; color: #0891b2;">header</div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; align-items: center;">
+            <div style="padding: 6px 10px; border-radius: 6px; background: #ea580c; color: white;">
+                06
+            </div>
+            <div style="margin-top: 8px; font-size: 13px; color: #ea580c;">mask/len</div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; align-items: center;">
+            <div style="padding: 6px 10px; border-radius: 6px; background: #1e3a8a; color: white;">
+                77 6f 72 6c 64 21
+            </div>
+            <div style="margin-top: 8px; font-size: 13px; color: #1e3a8a;">payload ("world!")</div>
+        </div>
+    </div>
+
+    The client reads a single message "Hello world!". This also works with masked frames- just unmask before
+    concatenating.
+
+    <br><br>
+
+    If a message can have multiple frames, what dictates its boundaries? It's finally time to talk about that header
+    byte. Let's look at the two headers from the frames above:
+
+
+    <div style="display: flex; align-items: center; justify-content: center; gap: 50px;">
+        <div
+            style="display: flex; flex-direction: column; align-items: center; font-family: monospace; margin: 2em 0; position: relative;">
+            <div style="padding: 6px 10px; border-radius: 6px; background: #0891b2; color: white;">
+                01
+            </div>
+            <div style="margin-top: 8px; font-size: 13px; color: #0891b2;">header</div>
+
+            <div
+                style="width: 2px; height: 20px; background: repeating-linear-gradient(to bottom, #0891b2, #0891b2 2px, transparent 2px, transparent 4px); margin: 8px 0;">
+            </div>
+
+            <div style="display: flex; margin-top: 8px; gap: 4px;">
+                <div style="display: flex; flex-direction: column; align-items: center;">
+                    <div style="background: #6b7280; color: white; padding: 4px 8px; border-radius: 4px;">0</div>
+                    <div style="margin-top: 4px; font-size: 12px; color: #6b7280;">FIN</div>
+                </div>
+                <div style="display: flex; flex-direction: column; align-items: center;">
+                    <div style="background: #6b7280; color: white; padding: 4px 8px; border-radius: 4px;">0</div>
+                    <div style="margin-top: 4px; font-size: 12px; color: #6b7280;">RSV1</div>
+                </div>
+                <div style="display: flex; flex-direction: column; align-items: center;">
+                    <div style="background: #6b7280; color: white; padding: 4px 8px; border-radius: 4px;">0</div>
+                    <div style="margin-top: 4px; font-size: 12px; color: #6b7280;">RSV2</div>
+                </div>
+                <div style="display: flex; flex-direction: column; align-items: center;">
+                    <div style="background: #6b7280; color: white; padding: 4px 8px; border-radius: 4px;">0</div>
+                    <div style="margin-top: 4px; font-size: 12px; color: #6b7280;">RSV3</div>
+                </div>
+                <div style="display: flex; flex-direction: column; align-items: center;">
+                    <div style="background: #0891b2; color: white; padding: 4px 8px; border-radius: 4px;">0001</div>
+                    <div style="margin-top: 4px; font-size: 12px; color: #0891b2;">opcode</div>
+                </div>
+            </div>
+        </div>
+
+        <div
+            style="display: flex; flex-direction: column; align-items: center; font-family: monospace; margin: 2em 0; position: relative;">
+            <div style="padding: 6px 10px; border-radius: 6px; background: #0891b2; color: white;">
+                80
+            </div>
+            <div style="margin-top: 8px; font-size: 13px; color: #0891b2;">header</div>
+
+            <div
+                style="width: 2px; height: 20px; background: repeating-linear-gradient(to bottom, #0891b2, #0891b2 2px, transparent 2px, transparent 4px); margin: 8px 0;">
+            </div>
+
+            <div style="display: flex; margin-top: 8px; gap: 4px;">
+                <div style="display: flex; flex-direction: column; align-items: center;">
+                    <div style="background: #0891b2; color: white; padding: 4px 8px; border-radius: 4px;">1</div>
+                    <div style="margin-top: 4px; font-size: 12px; color: #0891b2;">FIN</div>
+                </div>
+                <div style="display: flex; flex-direction: column; align-items: center;">
+                    <div style="background: #6b7280; color: white; padding: 4px 8px; border-radius: 4px;">0</div>
+                    <div style="margin-top: 4px; font-size: 12px; color: #6b7280;">RSV1</div>
+                </div>
+                <div style="display: flex; flex-direction: column; align-items: center;">
+                    <div style="background: #6b7280; color: white; padding: 4px 8px; border-radius: 4px;">0</div>
+                    <div style="margin-top: 4px; font-size: 12px; color: #6b7280;">RSV2</div>
+                </div>
+                <div style="display: flex; flex-direction: column; align-items: center;">
+                    <div style="background: #6b7280; color: white; padding: 4px 8px; border-radius: 4px;">0</div>
+                    <div style="margin-top: 4px; font-size: 12px; color: #6b7280;">RSV3</div>
+                </div>
+                <div style="display: flex; flex-direction: column; align-items: center;">
+                    <div style="background: #6b7280; color: white; padding: 4px 8px; border-radius: 4px;">0000</div>
+                    <div style="margin-top: 4px; font-size: 12px; color: #6b7280;">opcode</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div>
+        <p>
+            <strong style="color: #6b7280;"">FIN</strong>: If set, this is the final frame in a message. This is how message boundaries are determined.
+        </p>
+
+        <p><strong style=" color: #6b7280;">RSV1, RSV2, RSV3</strong>: These three bits are "reserved." They're all 0
+            in most normal WebSocket traffic. We'll ignore these for now but return to them when we talk about
+            compression.
+        </p>
+
+        <p><strong style="color: #6b7280;">Opcode</strong>: These 4 bits tell us what kind of frame this is.</p>
+
+        <ul>
+            <ul>
+                <li><code>0000</code>: Continuation - continues a fragmented message started by a previous frame.</li>
+                <li><code>0001</code>: Text - carries UTF-8 encoded text data.</li>
+                <li><code>0010</code>: Binary - carries arbitrary binary data; interpretation is left to the
+                    application.</li>
+                <li><code>1000</code>: Close - initiates a connection shutdown and may include a status code and reason.
+                </li>
+                <li><code>1001</code>: Ping - checks if the connection is alive. Can be sent at any time, even in the
+                    middle of a fragmented message.</li>
+                <li><code>1010</code>: Pong - replies to a ping. Like ping, it can appear between other frames and has
+                    no defined meaning beyond acknowledgment.</li>
+            </ul>
+        </ul>
+    </div>
+
+    <!--  How are payload lengths over 127 represented? Add a details section somewhere -->
+
+    <!-- TODO: Compression? -->
+
+
+    <h2 id="play-around" style="margin: 1.5em 0 1em 0;">
+        Play around<a class="link" href="#play-around">#</a>
+    </h2>
+
+    Generate your own WebSocket frames! Hover over each set of bytes to see what they represent.
+
+    <br><br>
+
+    <div id="encoder" style="padding: 10px; border: 0.5px solid #33415552; border-radius: 4px;"></div>
+
+
+    <footer style="padding: 1.5em 0; font-size: 0.9em; color: #888888;">
+        Source code available on GitHub.
+    </footer>
+</body>
+
+</html>
