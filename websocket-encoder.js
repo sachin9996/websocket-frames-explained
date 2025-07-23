@@ -167,7 +167,7 @@ export async function getWebSocketFrameSections(options) {
 
   let finalPayload = payload;
   let compressionInfo = null;
-  const isData = opcode === 0x1 || opcode === 0x2;
+  const isData = opcode === 0x0 || opcode === 0x1 || opcode === 0x2;
 
   if (compressed && isData) {
     const originalLength = payload.length;
@@ -184,7 +184,6 @@ export async function getWebSocketFrameSections(options) {
     };
   }
 
-  const frame = [];
   const frameSections = [];
 
   const finBit = fin ? 0x80 : 0x00;
@@ -193,11 +192,11 @@ export async function getWebSocketFrameSections(options) {
   const rsv3Bit = rsv3 ? 0x10 : 0x00;
   const opcodeBits = opcode & 0x0f;
 
-  frame.push(finBit | rsv1Bit | rsv2Bit | rsv3Bit | opcodeBits);
+  const headerByte = finBit | rsv1Bit | rsv2Bit | rsv3Bit | opcodeBits;
   frameSections.push({
     kind: "header",
-    bytes: [finBit | rsv1Bit | rsv2Bit | rsv3Bit | opcodeBits],
-    description: "Frame Header",
+    bytes: [headerByte],
+    description: "Header",
     details: {
       fin,
       rsv1,
@@ -210,9 +209,7 @@ export async function getWebSocketFrameSections(options) {
       rsv3Bit: rsv3 ? "1" : "0",
       opcodeBits: opcode.toString(2).padStart(4, "0"),
       opcodeName: opName(opcode),
-      combinedByte: (finBit | rsv1Bit | rsv2Bit | rsv3Bit | opcodeBits)
-        .toString(16)
-        .padStart(2, "0"),
+      byteString: bytesToHex([headerByte]),
     },
   });
 
@@ -221,64 +218,86 @@ export async function getWebSocketFrameSections(options) {
   if (masked) secondByte |= 0x80;
 
   if (finalPayload.length < 126) {
-    frame.push(secondByte);
     frameSections.push({
       kind: "length",
       bytes: [secondByte],
-      description: "Payload Length",
+      description: "Mask indicator + payload Length",
       details: {
         masked,
         payloadLength: finalPayload.length,
-        lengthBits: finalPayload.length.toString(2).padStart(7, "0"),
+        byteString: bytesToHex([secondByte]),
       },
     });
   } else if (finalPayload.length < 65536) {
-    frame.push(126);
-    frame.push((finalPayload.length >> 8) & 0xff);
-    frame.push(finalPayload.length & 0xff);
+    let secondByte = 126;
+    if (masked) secondByte |= 0x80;
+
     const lengthBytes = [
       (finalPayload.length >> 8) & 0xff,
       finalPayload.length & 0xff,
     ];
-    frameSections.push({
-      kind: "extendedLength",
-      bytes: [126, ...lengthBytes],
-      description: "Extended Payload Length (16 bits)",
-      details: {
-        masked,
-        payloadLength: finalPayload.length,
-        asBytes: bytesToHex(lengthBytes),
+
+    frameSections.push(
+      {
+        kind: "extendedLengthInfo",
+        bytes: [secondByte],
+        description: "Mask indicator + payload length info",
+        details: {
+          masked,
+          firstSevenLenBits: 126,
+          byteString: bytesToHex([secondByte]),
+        },
       },
-    });
+      {
+        kind: "extendedLength",
+        bytes: lengthBytes,
+        description: "Payload length (16 bits)",
+        details: {
+          masked,
+          payloadLength: finalPayload.length,
+        },
+      }
+    );
+
+    frameSections.push();
   } else {
-    frame.push(127);
+    let secondByte = 127;
+    if (masked) secondByte |= 0x80;
+
     const length = BigInt(finalPayload.length);
     const lengthBytes = [];
     for (let i = 7; i >= 0; i--) {
       const byte = Number((length >> BigInt(i * 8)) & 0xffn);
-      frame.push(byte);
       lengthBytes.push(byte);
     }
-    frameSections.push({
-      kind: "extendedLength",
-      bytes: [127, ...lengthBytes],
-      description: isControl
-        ? "Extended Control Frame Length (64-bit)"
-        : "Extended Payload Length (64-bit)",
-      details: {
-        masked,
-        payloadLength: finalPayload.length,
-        asBytes: "64-bit",
+    frameSections.push(
+      {
+        kind: "extendedLengthInfo",
+        bytes: [secondByte],
+        description: "Mask indicator + payload length info",
+        details: {
+          masked,
+          firstSevenLenBits: 127,
+          byteString: bytesToHex([secondByte]),
+        },
       },
-    });
+      {
+        kind: "extendedLength",
+        bytes: lengthBytes,
+        description: "Payload length (64-bit)",
+        details: {
+          masked,
+          payloadLength: finalPayload.length,
+        },
+      }
+    );
   }
 
   let mask = null;
   if (masked) {
     mask = newMask();
-    frame.push(...mask);
     frameSections.push({
-      kind: "mask",
+      kind: "maskingKey",
       bytes: mask,
       description: "Masking Key",
       details: {
@@ -299,7 +318,6 @@ export async function getWebSocketFrameSections(options) {
       const closeCodeBytes = finalPayloadBytes.slice(0, 2);
       const reasonBytes = finalPayloadBytes.slice(2);
 
-      frame.push(...closeCodeBytes);
       frameSections.push({
         kind: "closeCode",
         bytes: closeCodeBytes,
@@ -314,7 +332,6 @@ export async function getWebSocketFrameSections(options) {
       });
 
       if (reasonBytes.length > 0) {
-        frame.push(...reasonBytes);
         frameSections.push({
           kind: "closeReason",
           bytes: reasonBytes,
@@ -329,7 +346,6 @@ export async function getWebSocketFrameSections(options) {
         });
       }
     } else {
-      frame.push(...finalPayloadBytes);
       frameSections.push({
         kind: "payload",
         bytes: finalPayloadBytes,
@@ -345,13 +361,9 @@ export async function getWebSocketFrameSections(options) {
         },
       });
     }
-  } else if (isControl) {
-    // For control frames, ensure no payload bytes are added to the frame
-    // The frame should end after the masking key (if present)
   }
 
   return {
-    frame,
     frameSections,
     details: {
       fin,
@@ -363,7 +375,6 @@ export async function getWebSocketFrameSections(options) {
       mask,
       payloadLength: finalPayload.length,
       originalPayloadLength: payload.length,
-      compressed: compressed && opcode === 1,
     },
   };
 }

@@ -13,6 +13,10 @@ body {
   max-width: 700px;
 }
 
+h1 {
+  text-align: center;
+}
+
 .link {
   text-decoration: none;
   color: inherit;
@@ -23,6 +27,16 @@ body {
 h2:hover .link {
   opacity: 1;
 }
+
+.link-text {
+  color: #7c3aed;
+  text-decoration: none;
+}
+
+.link-text:hover {
+  text-decoration: underline;
+}
+
 
 .container {
   display: flex;
@@ -72,7 +86,7 @@ h2:hover .link {
 
 @media (max-width: 480px) {
   body {
-    padding: 0.5rem;
+    padding: 1rem;
   }
 
   #title {
@@ -102,7 +116,7 @@ h2:hover .link {
 
 @media (max-width: 320px) {
   body {
-    padding: 0.25rem;
+    padding: 0.5rem;
   }
 
   .container {
@@ -288,7 +302,7 @@ h2:hover .link {
   font-size: 0.75rem;
   flex: 1;
   min-height: 150px;
-  overflow: visible;
+  overflow-y: auto;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -302,7 +316,6 @@ h2:hover .link {
   font-size: 0.7rem;
   opacity: 0.7;
   transition: opacity 0.2s;
-  overflow: visible;
 }
 
 .frame-section.highlighted {
@@ -319,10 +332,9 @@ h2:hover .link {
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
-  overflow: visible;
 }
 
-.detail-item {
+.frame-part {
   font-size: 0.65rem;
   padding: 0.15rem;
   background-color: #1e293b;
@@ -333,14 +345,14 @@ h2:hover .link {
   overflow-wrap: break-word;
 }
 
-.detail-item.small {
+.frame-part.small {
   font-size: 0.6rem;
   padding: 0.1rem 0.15rem;
   background-color: #0f172a;
   color: #cbd5e1;
 }
 
-.detail-item.info {
+.frame-part.info {
   font-size: 0.6rem;
   padding: 0.1rem 0.15rem;
   background-color: #0f172a;
@@ -349,13 +361,13 @@ h2:hover .link {
   color: #cbd5e1;
 }
 
-.detail-item.compression {
+.frame-part.compression {
   background-color: #1e293b;
   color: #cbd5e1;
   font-style: italic;
 }
 
-.detail-item.payload-plaintext {
+.frame-part.payload-plaintext {
   max-height: 200px;
   overflow-y: auto;
   overflow-x: hidden;
@@ -364,7 +376,6 @@ h2:hover .link {
 }
 
 .bit-breakdown {
-  margin-top: 0.25rem;
   padding: 0.25rem;
   background-color: #0f172a;
   border-radius: 3px;
@@ -378,7 +389,7 @@ h2:hover .link {
 }
 
 .field-label {
-  width: 16px;
+  width: 25px;
   height: 12px;
   display: flex;
   align-items: center;
@@ -389,10 +400,10 @@ h2:hover .link {
   font-weight: 500;
 }
 
-.field-label.op-label {
+.field-label.opcode {
   width: 80px;
-  margin-left: -32px;
-  font-size: 0.35rem;
+  margin-left: -40px;
+  font-size: 0.4rem;
 }
 
 .bit-grid {
@@ -402,7 +413,7 @@ h2:hover .link {
 }
 
 .bit-position {
-  width: 16px;
+  width: 25px;
   height: 12px;
   display: flex;
   align-items: center;
@@ -418,8 +429,8 @@ h2:hover .link {
 }
 
 .bit-value {
-  width: 16px;
-  height: 12px;
+  width: 25px;
+  height: 20px;
   display: flex;
   align-items: center;
   justify-content: center;

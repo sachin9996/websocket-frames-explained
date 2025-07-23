@@ -1,4 +1,4 @@
-import { getWebSocketFrameSections } from "./websocket-encoder.js";
+import { bytesToHex, getWebSocketFrameSections } from "./websocket-encoder.js";
 
 let currentFrameDetails = null;
 let highlightedElementIndex = -1;
@@ -17,6 +17,7 @@ export function checkbox(text, checked, id) {
   label.htmlFor = id;
   label.className = "checkbox-label";
   label.textContent = text;
+  label.title = "FOO";
 
   container.append(checkbox, label);
   return { checkbox, container };
@@ -27,16 +28,17 @@ export function getElementColor(element) {
     case "closeCode":
       return "#dc2626";
     case "closeReason":
-      return "#059669";
+      return "#c756c3";
     case "payload":
-      return "#1e3a8a";
-    case "mask":
+      return "#059669";
+    case "maskingKey":
       return "#7c3aed";
-    case "extendedLength":
+    case "extendedLengthInfo":
       return "#581c87";
     case "header":
       return "#0891b2";
     case "length":
+    case "extendedLength":
       return "#ea580c";
     default:
       return "b91c1c";
@@ -142,18 +144,18 @@ export function updateFrameDetailsHighlight() {
   });
 }
 
-function createCloseCodeDetails(element) {
+function createCloseCodePart(element) {
   const detailsContainer = document.createElement("div");
   detailsContainer.className = "details-container";
 
   const closeCodeDetail = document.createElement("div");
-  closeCodeDetail.className = "detail-item";
+  closeCodeDetail.className = "frame-part";
   closeCodeDetail.textContent = `Close Code: ${element.details.closeCodeValue}`;
   detailsContainer.append(closeCodeDetail);
 
   if (element.details.masked) {
     const maskingNote = document.createElement("div");
-    maskingNote.className = "detail-item";
+    maskingNote.className = "frame-part";
     maskingNote.style.fontSize = "11px";
     maskingNote.style.color = "#94a3b8";
     maskingNote.style.fontStyle = "italic";
@@ -162,14 +164,16 @@ function createCloseCodeDetails(element) {
   }
 
   const lengthDetail = document.createElement("div");
-  lengthDetail.className = "detail-item small";
-  lengthDetail.textContent = `${element.details.payloadLength} bytes`;
+  lengthDetail.className = "frame-part small";
+  lengthDetail.textContent = `${element.details.payloadLength} ${
+    element.details.payloadLength === 1 ? "byte" : "bytes"
+  }`;
   detailsContainer.append(lengthDetail);
 
   return detailsContainer;
 }
 
-function createCloseReasonDetails(element) {
+function createCloseReasonPart(element) {
   const detailsContainer = document.createElement("div");
   detailsContainer.className = "details-container";
 
@@ -184,39 +188,30 @@ function createCloseReasonDetails(element) {
   }
 
   const reasonDetail = document.createElement("div");
-  reasonDetail.className = "detail-item";
+  reasonDetail.className = "frame-part";
   reasonDetail.textContent = `Close Reason: "${closeReason}"`;
   detailsContainer.append(reasonDetail);
 
   if (element.details.masked && element.details.originalBytes) {
     const maskingDetail = document.createElement("div");
-    maskingDetail.className = "detail-item";
+    maskingDetail.className = "frame-part";
     maskingDetail.style.fontSize = "11px";
     maskingDetail.style.color = "#94a3b8";
     maskingDetail.style.fontStyle = "italic";
-
-    const originalHex = element.details.originalBytes
-      .slice(0, 4)
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join(" ");
-    const maskedHex = element.bytes
-      .slice(0, 4)
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join(" ");
 
     maskingDetail.textContent = "Note: The close reason is masked.";
     detailsContainer.append(maskingDetail);
   }
 
   const lengthDetail = document.createElement("div");
-  lengthDetail.className = "detail-item small";
+  lengthDetail.className = "frame-part small";
   lengthDetail.textContent = `${element.details.payloadLength} bytes`;
   detailsContainer.append(lengthDetail);
 
   return detailsContainer;
 }
 
-function createPayloadDetails(element) {
+function createPayloadPart(element) {
   const detailsContainer = document.createElement("div");
   detailsContainer.className = "details-container";
 
@@ -233,16 +228,16 @@ function createPayloadDetails(element) {
   }
 
   const plaintextDetail = document.createElement("div");
-  plaintextDetail.className = "detail-item payload-plaintext";
+  plaintextDetail.className = "frame-part payload-plaintext";
   plaintextDetail.style.overflowX = "hidden";
   plaintextDetail.style.maxHeight = "200px";
   plaintextDetail.style.overflowY = "auto";
-  plaintextDetail.textContent = `"${originalPlaintext}"`;
+  plaintextDetail.textContent = originalPlaintext;
   detailsContainer.append(plaintextDetail);
 
   if (element.details.masked && element.details.originalBytes) {
     const maskingDetail = document.createElement("div");
-    maskingDetail.className = "detail-item";
+    maskingDetail.className = "frame-part";
     maskingDetail.style.fontSize = "11px";
     maskingDetail.style.color = "#94a3b8";
     maskingDetail.style.fontStyle = "italic";
@@ -257,50 +252,36 @@ function createPayloadDetails(element) {
       }
     }
 
-    let maskingInfo = "";
+    if (!mask) throw new Error("mask not found");
 
-    // TODO: Fix?
-    if (mask) {
-      const originalHex = element.details.originalBytes
-        .slice(0, 4)
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join(" ");
-      const maskedHex = element.bytes
-        .slice(0, 4)
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join(" ");
-      const maskHex = mask
-        .slice(0, 4)
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join(" ");
+    const originalHex = element.details.originalBytes
+      .slice(0, 4)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join(" ");
+    const maskedHex = element.bytes
+      .slice(0, 4)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join(" ");
+    const maskHex = mask
+      .slice(0, 4)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join(" ");
 
-      maskingInfo += `Original: ${originalHex}${
-        element.details.originalBytes.length > 4 ? "..." : ""
-      }<br>`;
-      maskingInfo += `Mask:     ${maskHex}<br>`;
-      maskingInfo += `Masked:   ${maskedHex}${
-        element.bytes.length > 4 ? "..." : ""
-      }`;
-    } else {
-      const originalHex = element.details.originalBytes
-        .slice(0, 4)
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join(" ");
-      const maskedHex = element.bytes
-        .slice(0, 4)
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join(" ");
+    const originalLine = document.createElement("div");
+    originalLine.textContent = `Original: ${originalHex}${
+      element.details.originalBytes.length > 4 ? "..." : ""
+    }`;
 
-      maskingInfo += `Masked:   ${maskedHex}${
-        element.bytes.length > 4 ? "..." : ""
-      }<br>`;
-      maskingInfo += `Mask:     [key not found]<br>`;
-      maskingInfo += `Original: ${originalHex}${
-        element.details.originalBytes.length > 4 ? "..." : ""
-      }`;
-    }
+    const maskLine = document.createElement("div");
+    maskLine.textContent = `Masking key: ${maskHex}`;
 
-    maskingDetail.innerHTML = maskingInfo;
+    const maskedLine = document.createElement("div");
+    maskedLine.textContent = `Masked: ${maskedHex}${
+      element.bytes.length > 4 ? "..." : ""
+    }`;
+
+    maskingDetail.append(originalLine, maskLine, maskedLine);
+
     detailsContainer.append(maskingDetail);
   }
 
@@ -310,17 +291,17 @@ function createPayloadDetails(element) {
       .join(" ");
 
     const compressedDetail = document.createElement("div");
-    compressedDetail.className = "detail-item";
+    compressedDetail.className = "frame-part";
     compressedDetail.textContent = `Compressed (hex): ${compressedHex}`;
     detailsContainer.append(compressedDetail);
 
     const lengthDetail = document.createElement("div");
-    lengthDetail.className = "detail-item";
+    lengthDetail.className = "frame-part";
     lengthDetail.textContent = `${element.details.compressionInfo.compressedLength} bytes (${element.details.compressionInfo.compressionRatio}% compression)`;
     detailsContainer.append(lengthDetail);
   } else {
     const lengthDetail = document.createElement("div");
-    lengthDetail.className = "detail-item small";
+    lengthDetail.className = "frame-part small";
     lengthDetail.textContent = `${element.details.payloadLength} bytes`;
     detailsContainer.append(lengthDetail);
   }
@@ -328,58 +309,41 @@ function createPayloadDetails(element) {
   return detailsContainer;
 }
 
-function createMaskingKeyDetails(element) {
+function createMaskingKeyPart(element) {
   const detailsContainer = document.createElement("div");
   detailsContainer.className = "details-container";
 
   const keyDetail = document.createElement("div");
-  keyDetail.className = "detail-item";
+  keyDetail.className = "frame-part";
   keyDetail.textContent = `${element.details.mask.join(" ")}`;
   detailsContainer.append(keyDetail);
 
   return detailsContainer;
 }
 
-function createFrameHeaderDetails(element) {
-  const detailsContainer = document.createElement("div");
-  detailsContainer.className = "details-container";
-
+function createFrameHeaderPart(element) {
   const headerDetail = document.createElement("div");
-  headerDetail.className = "detail-item";
-  headerDetail.textContent = `0x${element.details.combinedByte}`;
-  detailsContainer.append(headerDetail);
+  headerDetail.className = "frame-part";
+  headerDetail.textContent = `0x${element.details.byteString}`;
 
   const bitBreakdown = document.createElement("div");
   bitBreakdown.className = "bit-breakdown";
 
-  const fieldLabelsRow = document.createElement("div");
-  fieldLabelsRow.className = "field-labels";
-  const fieldLabels = [
-    "FIN",
-    "RSV1",
-    "RSV2",
-    "RSV3",
-    "Opcode",
-    "Opcode",
-    "Opcode",
-    "Opcode",
-  ];
+  const labelsRow = document.createElement("div");
+  labelsRow.className = "field-labels";
+  const labels = ["FIN", "RSV1", "RSV2", "RSV3", "", "", "OPCODE (4 bits)", ""];
 
   for (let i = 7; i >= 0; i--) {
-    const fieldLabel = document.createElement("div");
-    fieldLabel.className = "field-label";
+    const labelElement = document.createElement("div");
+    labelElement.className = "field-label";
+    labelElement.textContent = labels[7 - i];
 
-    if (fieldLabels[7 - i] === "Opcode") {
-      if (i === 1) {
-        fieldLabel.textContent = "Opcode (4 bits)";
-        fieldLabel.classList.add("op-label");
-      }
-    } else {
-      fieldLabel.textContent = fieldLabels[7 - i];
+    if (labels[7 - i] === "OPCODE (4 bits)") {
+      labelElement.classList.add("opcode");
     }
-    fieldLabelsRow.append(fieldLabel);
+
+    labelsRow.append(labelElement);
   }
-  bitBreakdown.append(fieldLabelsRow);
 
   const bitGrid = document.createElement("div");
   bitGrid.className = "bit-grid";
@@ -389,40 +353,191 @@ function createFrameHeaderDetails(element) {
     bitPosition.textContent = `${i}`;
     bitGrid.append(bitPosition);
   }
-  bitBreakdown.append(bitGrid);
 
   const bitValues = document.createElement("div");
   bitValues.className = "bit-values";
-  const combinedByte = parseInt(element.details.combinedByte, 16);
+  const byteString = parseInt(element.details.byteString, 16);
 
   for (let i = 7; i >= 0; i--) {
     const bitValue = document.createElement("div");
     bitValue.className = "bit-value";
-    const bit = (combinedByte >> i) & 1;
+    const bit = (byteString >> i) & 1;
     bitValue.textContent = `${bit}`;
     bitValue.style.backgroundColor = bit ? "#0891b2" : "#374151";
     bitValues.append(bitValue);
   }
-  bitBreakdown.append(bitValues);
-  detailsContainer.append(bitBreakdown);
+
+  bitBreakdown.append(labelsRow, bitGrid, bitValues);
+
+  const textPart = document.createElement("div");
+  textPart.className = "frame-part";
+  const finLine = document.createElement("div");
+  finLine.textContent = `FIN: ${element.details.fin}`;
+  const rsv1Line = document.createElement("div");
+  rsv1Line.textContent = `RSV1: ${element.details.rsv1}`;
+  const rsv2Line = document.createElement("div");
+  rsv2Line.textContent = `RSV1: ${element.details.rsv2}`;
+  const rsv3Line = document.createElement("div");
+  rsv3Line.textContent = `RSV1: ${element.details.rsv3}`;
+  const opcodeLine = document.createElement("div");
+  opcodeLine.textContent = `Opcode: ${element.details.opcodeBits} (${element.details.opcodeName})`;
+  textPart.append(finLine, rsv1Line, rsv2Line, rsv3Line, opcodeLine);
+
+  const detailsContainer = document.createElement("div");
+  detailsContainer.className = "details-container";
+  detailsContainer.append(headerDetail, bitBreakdown, textPart);
 
   return detailsContainer;
 }
 
-function createLengthDetails(element) {
+function createLengthPart(element) {
+  const lengthDetail = document.createElement("div");
+  lengthDetail.className = "frame-part";
+  lengthDetail.textContent = `0x${element.details.byteString}`;
+
+  const bitBreakdown = document.createElement("div");
+  bitBreakdown.className = "bit-breakdown";
+
+  const labelsRow = document.createElement("div");
+  labelsRow.className = "field-labels";
+  const labels = ["MASK", "", "", "LENGTH (7 bits)", "", "", "", ""];
+
+  for (let i = 7; i >= 0; i--) {
+    const labelElement = document.createElement("div");
+    labelElement.className = "field-label";
+    labelElement.textContent = labels[7 - i];
+
+    if (labels[7 - i] === "LENGTH (7 bits)") {
+      labelElement.style.width = "80px";
+      labelElement.style.marginRight = "-30px";
+    }
+
+    labelsRow.append(labelElement);
+  }
+
+  const bitGrid = document.createElement("div");
+  bitGrid.className = "bit-grid";
+  for (let i = 7; i >= 0; i--) {
+    const bitPosition = document.createElement("div");
+    bitPosition.className = "bit-position";
+    bitPosition.textContent = `${i}`;
+    bitGrid.append(bitPosition);
+  }
+
+  const bitValues = document.createElement("div");
+  bitValues.className = "bit-values";
+
+  for (let i = 7; i >= 0; i--) {
+    const bitValue = document.createElement("div");
+    bitValue.className = "bit-value";
+    const bit = (element.bytes[0] >> i) & 1;
+    bitValue.textContent = `${bit}`;
+    bitValue.style.backgroundColor = bit ? "#ea580c" : "#374151";
+
+    bitValues.append(bitValue);
+  }
+
+  bitBreakdown.append(labelsRow, bitGrid, bitValues);
+
   const detailsContainer = document.createElement("div");
   detailsContainer.className = "details-container";
 
-  const lengthDetail = document.createElement("div");
-  lengthDetail.className = "detail-item";
+  const textPart = document.createElement("div");
+  textPart.className = "frame-part";
+  const maskLine = document.createElement("div");
+  maskLine.textContent = `Masked: ${element.details.masked}`;
+  const lengthLine = document.createElement("div");
+  lengthLine.textContent = `Length: ${element.details.payloadLength} ${
+    element.details.payloadLength === 1 ? "byte" : "bytes"
+  }`;
+  textPart.append(maskLine, lengthLine);
 
-  if (element.kind === "extendedLength") {
-    lengthDetail.textContent = `${element.details.payloadLength} bytes (${element.details.asBytes})`;
-  } else {
-    lengthDetail.textContent = `${element.details.payloadLength} bytes`;
+  detailsContainer.append(lengthDetail, bitBreakdown, textPart);
+
+  return detailsContainer;
+}
+
+function createExtendedLengthPart(element) {
+  const textPart = document.createElement("div");
+  textPart.className = "frame-part";
+  const length = document.createElement("div");
+  length.textContent = `Length: ${element.details.payloadLength} bytes`;
+  textPart.append(length);
+
+  const detailsContainer = document.createElement("div");
+  detailsContainer.className = "details-container";
+  detailsContainer.append(textPart);
+
+  return detailsContainer;
+}
+
+function createExtendedLengthInfoPart(element) {
+  const lengthDetail = document.createElement("div");
+  lengthDetail.className = "frame-part";
+  lengthDetail.textContent = `0x${element.details.byteString}`;
+
+  const bitBreakdown = document.createElement("div");
+  bitBreakdown.className = "bit-breakdown";
+
+  const labelsRow = document.createElement("div");
+  labelsRow.className = "field-labels";
+  const labels = ["MASK", "", "", "LENGTH INDICATOR (7 bits)", "", "", "", ""];
+
+  for (let i = 7; i >= 0; i--) {
+    const labelElement = document.createElement("div");
+    labelElement.className = "field-label";
+    labelElement.textContent = labels[7 - i];
+
+    if (labels[7 - i] === "LENGTH INDICATOR (7 bits)") {
+      labelElement.style.width = "160px";
+    }
+
+    labelsRow.append(labelElement);
   }
 
-  detailsContainer.append(lengthDetail);
+  const bitGrid = document.createElement("div");
+  bitGrid.className = "bit-grid";
+  for (let i = 7; i >= 0; i--) {
+    const bitPosition = document.createElement("div");
+    bitPosition.className = "bit-position";
+    bitPosition.textContent = `${i}`;
+    bitGrid.append(bitPosition);
+  }
+
+  const bitValues = document.createElement("div");
+  bitValues.className = "bit-values";
+
+  for (let i = 7; i >= 0; i--) {
+    const bitValue = document.createElement("div");
+    bitValue.className = "bit-value";
+    const bit = (element.bytes[0] >> i) & 1;
+    bitValue.textContent = `${bit}`;
+    bitValue.style.backgroundColor = bit ? "#581c87" : "#374151";
+
+    bitValues.append(bitValue);
+  }
+
+  bitBreakdown.append(labelsRow, bitGrid, bitValues);
+
+  const detailsContainer = document.createElement("div");
+  detailsContainer.className = "details-container";
+
+  const textPart = document.createElement("div");
+  textPart.className = "frame-part";
+  const maskLine = document.createElement("div");
+  maskLine.textContent = `Masked: ${element.details.masked}`;
+  const lengthLine = document.createElement("div");
+  lengthLine.textContent = `Length of payload length: ${
+    element.details.firstSevenLenBits === 126 ? "16 bits" : "64 bits"
+  }`;
+  const explanationLine = document.createElement("div");
+  explanationLine.style.fontStyle = "italic";
+  explanationLine.style.color = "#94a3b8";
+  explanationLine.textContent = `This comes from the lower 7 bits being ${element.details.firstSevenLenBits}`;
+  textPart.append(maskLine, lengthLine, explanationLine);
+
+  detailsContainer.append(lengthDetail, bitBreakdown, textPart);
+
   return detailsContainer;
 }
 
@@ -458,25 +573,37 @@ export function updateFrameDetails(frameSections) {
       updateFrameDetailsHighlight();
     });
 
-    if (element.details) {
-      let details;
-
-      if (element.details.closeCode) {
-        details = createCloseCodeDetails(element);
-      } else if (element.details.closeReason) {
-        details = createCloseReasonDetails(element);
-      } else if (element.details.payload) {
-        details = createPayloadDetails(element);
-      } else if (element.details.mask) {
-        details = createMaskingKeyDetails(element);
-      } else if (element.description.includes("Frame Header")) {
-        details = createFrameHeaderDetails(element);
-      } else {
-        details = createLengthDetails(element);
-      }
-
-      section.append(details);
+    let part;
+    switch (element.kind) {
+      case "closeCode":
+        part = createCloseCodePart(element);
+        break;
+      case "closeReason":
+        part = createCloseReasonPart(element);
+        break;
+      case "payload":
+        part = createPayloadPart(element);
+        break;
+      case "maskingKey":
+        part = createMaskingKeyPart(element);
+        break;
+      case "header":
+        part = createFrameHeaderPart(element);
+        break;
+      case "length":
+        part = createLengthPart(element);
+        break;
+      case "extendedLength":
+        part = createExtendedLengthPart(element);
+        break;
+      case "extendedLengthInfo":
+        part = createExtendedLengthInfoPart(element);
+        break;
+      default:
+        throw new Error(`Unexpected kind ${element.kind}`);
     }
+
+    section.append(part);
 
     details.append(section);
   });
@@ -559,13 +686,13 @@ export async function generateFrame() {
 
   try {
     const text = input.value || "";
-    const op = parseInt(opSelect.value) || 1;
+    const op = parseInt(opSelect.value);
     const isClose = op === 8;
     const isData = op < 8;
 
-    if (isData && text.length > 10000) {
+    if (isData && text.length > 100000) {
       throw new Error(
-        "Plaintext input is too long. Maximum length is 10,000 characters."
+        "Plaintext input is too long. Maximum length is 100,000 characters."
       );
     }
 

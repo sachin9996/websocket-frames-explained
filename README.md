@@ -5,6 +5,7 @@
    ```bash
    git clone https://github.com/sachin9996/websocket-frames-explained.git
    cd websocket-frames-explained
+   npm install
    make all
    ```
 

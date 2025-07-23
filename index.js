@@ -1,15 +1,11 @@
-// TODO: Refactor some of this stuff lol
-// TODO: Make compression stats red or green? Or just note it in the post
-// TODO: Make frame header stuff bigger
-// TODO: Change payload color? Change all colors lol
-// TODO: Go over the UI and make certain text non selectable
-// TODO: Responsiveness
-// TODO: Bit breakdown for payload length as well
-// TODO: Add continuation frame support
-
 import { checkbox, handleOpChange, generateFrame } from "./ui-components.js";
 
 const opcodes = [
+  {
+    value: "0",
+    text: "Continuation (0x0)",
+    description: "Continues a fragmented message started by a previous frame",
+  },
   { value: "1", text: "Text (0x1)", description: "UTF-8 encoded text data" },
   { value: "2", text: "Binary (0x2)", description: "Binary data" },
   {
@@ -130,10 +126,7 @@ function createInput() {
   input.id = "textInput";
   input.placeholder = "Your message goes here";
 
-  input.addEventListener("focus", () => (input.style.borderColor = "#3b82f6"));
-  input.addEventListener("blur", () => (input.style.borderColor = "#334155"));
-
-  return { input };
+  return input;
 }
 
 function createOptions() {
@@ -157,6 +150,8 @@ function createOptions() {
     option.title = op.description;
     opSelect.append(option);
   });
+
+  opSelect.value = "1";
 
   const opContainer = document.createElement("div");
   opContainer.className = "op-container";
@@ -206,7 +201,7 @@ function createOptions() {
   options.append(checkboxContainer);
   options.append(generateBtn);
 
-  return { options };
+  return options;
 }
 
 function createOutput() {
@@ -216,10 +211,10 @@ function createOutput() {
 
   const placeholder = document.createElement("div");
   placeholder.className = "output-placeholder";
-  placeholder.textContent = "Output appears here";
+  placeholder.textContent = "Frame bytes appear here";
 
   output.append(placeholder);
-  return { output };
+  return output;
 }
 
 function createDetails() {
@@ -232,16 +227,16 @@ function createDetails() {
   placeholder.textContent = "Frame details appear here";
 
   details.append(placeholder);
-  return { details };
+  return details;
 }
 
 function init() {
   const { container, leftPanel, rightPanel } = createLayout();
 
-  const { input } = createInput();
-  const { output } = createOutput();
-  const { options } = createOptions();
-  const { details } = createDetails();
+  const input = createInput();
+  const output = createOutput();
+  const options = createOptions();
+  const details = createDetails();
 
   leftPanel.append(input);
   leftPanel.append(options);
@@ -249,6 +244,7 @@ function init() {
 
   rightPanel.append(details);
 
+  root.style.padding = "10px";
   root.append(container);
 }
 
